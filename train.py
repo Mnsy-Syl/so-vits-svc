@@ -163,10 +163,10 @@ def train_and_evaluate(rank, epoch, hps, nets, optims, schedulers, scaler, loade
             hps.data.mel_fmin,
             hps.data.mel_fmax)
         
-        with autocast(enabled=hps.train.fp16_run, dtype=half_type):
+        with autocast(enabled=hps.train.fp16_run, dtype=half_type):  # 混合精度训练
             y_hat, ids_slice, z_mask, \
             (z, z_p, m_p, logs_p, m_q, logs_q), pred_lf0, norm_lf0, lf0 = net_g(c, f0, uv, spec, g=g, c_lengths=lengths,
-                                                                                spec_lengths=lengths,vol = volume)
+                                                                                spec_lengths=lengths,vol = volume)  # generator
 
             y_mel = commons.slice_segments(mel, ids_slice, hps.train.segment_size // hps.data.hop_length)
             y_hat_mel = mel_spectrogram_torch(
@@ -182,14 +182,14 @@ def train_and_evaluate(rank, epoch, hps, nets, optims, schedulers, scaler, loade
             y = commons.slice_segments(y, ids_slice * hps.data.hop_length, hps.train.segment_size)  # slice
 
             # Discriminator
-            y_d_hat_r, y_d_hat_g, _, _ = net_d(y, y_hat.detach())
+            y_d_hat_r, y_d_hat_g, _, _ = net_d(y, y_hat.detach())  # discriminative
 
             with autocast(enabled=False, dtype=half_type):
                 loss_disc, losses_disc_r, losses_disc_g = discriminator_loss(y_d_hat_r, y_d_hat_g)
                 loss_disc_all = loss_disc
         
         optim_d.zero_grad()
-        scaler.scale(loss_disc_all).backward()
+        scaler.scale(loss_disc_all).backward() # backward的为loss_disc
         scaler.unscale_(optim_d)
         grad_norm_d = commons.clip_grad_value_(net_d.parameters(), None)
         scaler.step(optim_d)
@@ -198,7 +198,7 @@ def train_and_evaluate(rank, epoch, hps, nets, optims, schedulers, scaler, loade
         with autocast(enabled=hps.train.fp16_run, dtype=half_type):
             # Generator
             y_d_hat_r, y_d_hat_g, fmap_r, fmap_g = net_d(y, y_hat)
-            with autocast(enabled=False, dtype=half_type):
+            with autocast(enabled=False, dtype=half_type): # 生成器更新
                 loss_mel = F.l1_loss(y_mel, y_hat_mel) * hps.train.c_mel
                 loss_kl = kl_loss(z_p, logs_q, m_p, logs_p, z_mask) * hps.train.c_kl
                 loss_fm = feature_loss(fmap_r, fmap_g)
@@ -206,7 +206,7 @@ def train_and_evaluate(rank, epoch, hps, nets, optims, schedulers, scaler, loade
                 loss_lf0 = F.mse_loss(pred_lf0, lf0) if net_g.module.use_automatic_f0_prediction else 0
                 loss_gen_all = loss_gen + loss_fm + loss_mel + loss_kl + loss_lf0
         optim_g.zero_grad()
-        scaler.scale(loss_gen_all).backward()
+        scaler.scale(loss_gen_all).backward() # backward的是generator的所有loss
         scaler.unscale_(optim_g)
         grad_norm_g = commons.clip_grad_value_(net_g.parameters(), None)
         scaler.step(optim_g)
@@ -215,9 +215,9 @@ def train_and_evaluate(rank, epoch, hps, nets, optims, schedulers, scaler, loade
         if rank == 0:
             if global_step % hps.train.log_interval == 0:
                 lr = optim_g.param_groups[0]['lr']
-                losses = [loss_disc, loss_gen, loss_fm, loss_mel, loss_kl]
+                losses = [loss_disc, loss_gen, loss_fm, loss_mel, loss_kl] # discriminator, generator, feature_loss, l1_loss, kl_loss
                 reference_loss=0
-                for i in losses:
+                for i in losses: # 累积五项loss
                     reference_loss += i
                 logger.info('Train Epoch: {} [{:.0f}%]'.format(
                     epoch,
@@ -273,7 +273,7 @@ def train_and_evaluate(rank, epoch, hps, nets, optims, schedulers, scaler, loade
         start_time = now
 
 
-def evaluate(hps, generator, eval_loader, writer_eval):
+def evaluate(hps, generator, eval_loader, writer_eval):  # 不记录损失
     generator.eval()
     image_dict = {}
     audio_dict = {}
