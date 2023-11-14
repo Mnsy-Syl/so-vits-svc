@@ -51,14 +51,14 @@ class TextAudioSpeakerLoader(torch.utils.data.Dataset):
             raise ValueError(
                 "Sample Rate not match. Expect {} but got {} from {}".format(
                     self.sampling_rate, sampling_rate, filename))
-        audio_norm = audio / self.max_wav_value
+        audio_norm = audio / self.max_wav_value  # 长度归一化
         audio_norm = audio_norm.unsqueeze(0)
         spec_filename = filename.replace(".wav", ".spec.pt")
 
         # Ideally, all data generated after Mar 25 should have .spec.pt
         if os.path.exists(spec_filename):
             spec = torch.load(spec_filename)
-        else:
+        else:  # 创建spec_file
             spec = spectrogram_torch(audio_norm, self.filter_length,
                                      self.sampling_rate, self.hop_length, self.win_length,
                                      center=False)
